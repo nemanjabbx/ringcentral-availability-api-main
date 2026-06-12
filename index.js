@@ -277,10 +277,11 @@ async function checkQueueAvailability(queueName) {
   };
 }
 
-async function checkAvailability(stateUpper) {
+async function checkAvailability(stateUpper, office) {
   const stateName = STATE_NAME_MAP[stateUpper] || stateUpper;
-  const result = await checkQueueAvailability(stateName);
-  return { ...result, state: stateUpper, state_name: stateName };
+  const queueName = office ? `${stateName} - ${office}` : stateName;
+  const result = await checkQueueAvailability(queueName);
+  return { ...result, state: stateUpper, state_name: stateName, office: office || 'main' };
 }
 
 // --- Cache warmup ---
@@ -327,8 +328,9 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ available: false, error: 'Missing state parameter. Use ?state=TX' }));
     }
     const stateUpper = state.toUpperCase().trim();
+    const office = url.searchParams.get('office') ? url.searchParams.get('office').trim() : null;
     try {
-      const result = await checkAvailability(stateUpper);
+      const result = await checkAvailability(stateUpper, office);
       res.writeHead(200);
       return res.end(JSON.stringify(result));
     } catch (err) {
