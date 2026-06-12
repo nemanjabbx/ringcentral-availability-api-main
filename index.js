@@ -8,6 +8,78 @@ const RC_JWT = process.env.RC_JWT;
 let tokenCache = null;
 let tokenExpiry = 0;
 
+// --- Caching ---
+const presenceCache = new Map();
+const PRESENCE_TTL = 30 * 1000; // 30 seconds
+
+const queueMembersCache = new Map();
+const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
+
+let queuesCache = null;
+let queuesCacheExpiry = 0;
+const QUEUES_TTL = 5 * 60 * 1000; // 5 minutes
+
+let extensionsCache = null;
+let extensionsCacheExpiry = 0;
+const EXTENSIONS_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function getPresenceCached(token, extensionId) {
+  const now = Date.now();
+  const cached = presenceCache.get(extensionId);
+  if (cached && now < cached.expiry) return cached.data;
+  try {
+    const data = await getPresence(token, extensionId);
+    presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL });
+    return data;
+  } catch (err) {
+    if (cached) return cached.data;
+    throw err;
+  }
+}
+
+async function getQueueMembersCached(token, queueId) {
+  const now = Date.now();
+  const cached = queueMembersCache.get(queueId);
+  if (cached && now < cached.expiry) return cached.data;
+  try {
+    const data = await getQueueMembers(token, queueId);
+    queueMembersCache.set(queueId, { data, expiry: now + QUEUE_MEMBERS_TTL });
+    return data;
+  } catch (err) {
+    if (cached) return cached.data;
+    throw err;
+  }
+}
+
+async function getQueuesCached(token) {
+  const now = Date.now();
+  if (queuesCache && now < queuesCacheExpiry) return queuesCache;
+  try {
+    const data = await getQueues(token);
+    queuesCache = data;
+    queuesCacheExpiry = now + QUEUES_TTL;
+    return data;
+  } catch (err) {
+    if (queuesCache) return queuesCache;
+    throw err;
+  }
+}
+
+async function getExtensionsCached(token) {
+  const now = Date.now();
+  if (extensionsCache && now < extensionsCacheExpiry) return extensionsCache;
+  try {
+    const data = await getExtensions(token);
+    extensionsCache = data;
+    extensionsCacheExpiry = now + EXTENSIONS_TTL;
+    return data;
+  } catch (err) {
+    if (extensionsCache) return extensionsCache;
+    throw err;
+  }
+}
+
+// --- State map ---
 const STATE_NAME_MAP = {
   'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
   'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
@@ -24,7 +96,7 @@ const STATE_NAME_MAP = {
   'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
 };
 
-
+// --- Agent map (legacy) ---
 const AGENT_MAP = {
   '0000as': 'MI - April Simpson',
   '0000by': 'MI - Bebeto Yewah',
@@ -32,11 +104,17 @@ const AGENT_MAP = {
   '0000lt': 'MI - Lee Trawick',
 };
 
+// --- Tampa queue shortcuts ---
+// Add Tampa queue names here once confirmed by Mark/Edmar
+const TAMPA_QUEUE_SHORTCUTS = {
+  // '/queue/tampa-vip': 'Tampa VIP Response',
+  // '/queue/tampa-general': 'Tampa General',
+};
+
+// --- RC API functions ---
 async function getAccessToken() {
   const now = Date.now();
-  if (tokenCache && now < tokenExpiry) {
-    return tokenCache;
-  }
+  if (tokenCache && now < tokenExpiry) return tokenCache;
   return new Promise((resolve, reject) => {
     const credentials = Buffer.from(`${RC_CLIENT_ID}:${RC_CLIENT_SECRET}`).toString('base64');
     const body = `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${RC_JWT}`;
@@ -106,7 +184,11 @@ async function getQueueMembers(token, queueId) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
+        try {
+          const json = JSON.parse(data);
+          if (json.errorCode) reject(new Error(`RC error ${json.errorCode}: ${json.message}`));
+          else resolve(json);
+        }
         catch(e) { reject(new Error('Failed to parse members: ' + data)); }
       });
     });
@@ -136,54 +218,31 @@ async function getPresence(token, extensionId) {
   });
 }
 
-async function checkAvailability(stateUpper) {
-  const stateName = STATE_NAME_MAP[stateUpper] || stateUpper;
-  const token = await getAccessToken();
-  const queuesData = await getQueues(token);
-  const queues = queuesData.records || [];
-
-  const matchedQueue = queues.find(q =>
-    q.name.toLowerCase() === stateName.toLowerCase()
-  );
-
-  if (!matchedQueue) {
-    return {
-      available: false,
-      agents: 0,
-      state: stateUpper,
-      state_name: stateName,
-      reason: `No queue found for: ${stateName}`
+async function getExtensions(token) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'platform.ringcentral.com',
+      path: '/restapi/v1.0/account/~/extension?perPage=200&type=User&status=Enabled',
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
     };
-  }
-
-  const membersData = await getQueueMembers(token, matchedQueue.id);
-  const members = membersData.records || [];
-
-  const presenceResults = await Promise.all(
-    members.map(m => getPresence(token, m.id).catch(() => null))
-  );
-
-  const availableAgents = presenceResults.filter(p => {
-    if (!p) return false;
-    return (
-      p.presenceStatus === 'Available' &&
-      p.dndStatus === 'TakeAllCalls' &&
-      p.telephonyStatus === 'NoCall'
-    );
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch(e) { reject(new Error('Failed to parse extensions: ' + data)); }
+      });
+    });
+    req.on('error', reject);
+    req.end();
   });
-
-  return {
-    available: availableAgents.length > 0,
-    agents: availableAgents.length,
-    state: stateUpper,
-    queue: matchedQueue.name,
-    total_members: members.length
-  };
 }
 
-async function checkAgentAvailability(queueName) {
+// --- Availability check functions ---
+async function checkQueueAvailability(queueName) {
   const token = await getAccessToken();
-  const queuesData = await getQueues(token);
+  const queuesData = await getQueuesCached(token);
   const queues = queuesData.records || [];
 
   const matchedQueue = queues.find(q =>
@@ -191,18 +250,14 @@ async function checkAgentAvailability(queueName) {
   );
 
   if (!matchedQueue) {
-    return {
-      available: false,
-      agents: 0,
-      reason: `No queue found`
-    };
+    return { available: false, agents: 0, reason: `No queue found for: ${queueName}` };
   }
 
-  const membersData = await getQueueMembers(token, matchedQueue.id);
+  const membersData = await getQueueMembersCached(token, matchedQueue.id);
   const members = membersData.records || [];
 
   const presenceResults = await Promise.all(
-    members.map(m => getPresence(token, m.id).catch(() => null))
+    members.map(m => getPresenceCached(token, m.id).catch(() => null))
   );
 
   const availableAgents = presenceResults.filter(p => {
@@ -217,10 +272,41 @@ async function checkAgentAvailability(queueName) {
   return {
     available: availableAgents.length > 0,
     agents: availableAgents.length,
+    queue: matchedQueue.name,
     total_members: members.length
   };
 }
 
+async function checkAvailability(stateUpper) {
+  const stateName = STATE_NAME_MAP[stateUpper] || stateUpper;
+  const result = await checkQueueAvailability(stateName);
+  return { ...result, state: stateUpper, state_name: stateName };
+}
+
+// --- Cache warmup ---
+async function warmupCache() {
+  try {
+    const token = await getAccessToken();
+    const queuesData = await getQueuesCached(token);
+    const queues = queuesData.records || [];
+    const allMembersData = await Promise.all(
+      queues.map(q => getQueueMembersCached(token, q.id).catch(() => null))
+    );
+    const uniqueExtIds = new Set();
+    allMembersData.forEach(md => {
+      if (md && md.records) md.records.forEach(m => uniqueExtIds.add(m.id));
+    });
+    for (const extId of uniqueExtIds) {
+      await getPresenceCached(token, extId).catch(() => null);
+      await new Promise(r => setTimeout(r, 200));
+    }
+    console.log(`Cache warmed: ${queues.length} queues, ${uniqueExtIds.size} agents`);
+  } catch (err) {
+    console.error('Cache warmup failed:', err.message);
+  }
+}
+
+// --- HTTP Server ---
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -233,7 +319,7 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: 'ok', message: 'Availability API is running' }));
   }
 
-  // State-based availability
+  // Legacy: state-based availability /availability?state=FL
   if (pathname === '/availability') {
     const state = url.searchParams.get('state');
     if (!state) {
@@ -252,7 +338,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Agent-specific availability
+  // Legacy: agent by ID /agent?id=0000as
   if (pathname === '/agent') {
     const id = url.searchParams.get('id');
     if (!id) {
@@ -265,7 +351,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ available: false, error: 'Unknown agent id' }));
     }
     try {
-      const result = await checkAgentAvailability(queueName);
+      const result = await checkQueueAvailability(queueName);
       res.writeHead(200);
       return res.end(JSON.stringify(result));
     } catch (err) {
@@ -275,9 +361,111 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Queue by name: /queue?name=Tampa+VIP
+  if (pathname === '/queue') {
+    const name = url.searchParams.get('name');
+    if (!name) {
+      res.writeHead(400);
+      return res.end(JSON.stringify({ available: false, error: 'Missing name parameter. Use ?name=QueueName' }));
+    }
+    try {
+      const result = await checkQueueAvailability(name.trim());
+      res.writeHead(200);
+      return res.end(JSON.stringify(result));
+    } catch (err) {
+      console.error('Error:', err.message);
+      res.writeHead(500);
+      return res.end(JSON.stringify({ available: false, error: err.message }));
+    }
+  }
+
+  // Tampa queue shortcuts
+  if (TAMPA_QUEUE_SHORTCUTS[pathname]) {
+    try {
+      const result = await checkQueueAvailability(TAMPA_QUEUE_SHORTCUTS[pathname]);
+      res.writeHead(200);
+      return res.end(JSON.stringify(result));
+    } catch (err) {
+      console.error('Error:', err.message);
+      res.writeHead(500);
+      return res.end(JSON.stringify({ available: false, error: err.message }));
+    }
+  }
+
+  // List all queues
+  if (pathname === '/queues') {
+    try {
+      const token = await getAccessToken();
+      const queuesData = await getQueuesCached(token);
+      const queues = queuesData.records || [];
+      res.writeHead(200);
+      return res.end(JSON.stringify({
+        total: queues.length,
+        queues: queues.map(q => ({ id: q.id, name: q.name }))
+      }));
+    } catch (err) {
+      console.error('Error:', err.message);
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // Debug: all agents presence
+  if (pathname === '/agents/debug') {
+    try {
+      const token = await getAccessToken();
+      const extData = await getExtensionsCached(token);
+      const extensions = (extData.records || []).map(e => e.extensionNumber);
+      const results = await Promise.all(extensions.map(async (ext) => {
+        try {
+          const json = await new Promise((resolve, reject) => {
+            const options = {
+              hostname: 'platform.ringcentral.com',
+              path: `/restapi/v1.0/account/~/extension?extensionNumber=${ext}`,
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${token}` }
+            };
+            const req = https.request(options, (res) => {
+              let data = '';
+              res.on('data', chunk => data += chunk);
+              res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
+            });
+            req.on('error', reject);
+            req.end();
+          });
+          const records = json && json.records || [];
+          if (!records.length) return { extension: ext, error: 'not found' };
+          const extId = records[0].id;
+          const extName = records[0].name;
+          const presence = await getPresenceCached(token, extId);
+          return {
+            extension: ext,
+            name: extName,
+            presenceStatus: presence ? presence.presenceStatus : null,
+            dndStatus: presence ? presence.dndStatus : null,
+            telephonyStatus: presence ? presence.telephonyStatus : null,
+            userStatus: presence ? presence.userStatus : null,
+            raw: presence
+          };
+        } catch(e) {
+          return { extension: ext, error: e.message };
+        }
+      }));
+      res.writeHead(200);
+      return res.end(JSON.stringify({ agents: results }));
+    } catch (err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found. Use /availability?state=TX or /agent?id=x7k2m' }));
+  res.end(JSON.stringify({ error: 'Not found. Available: /availability?state=TX, /agent?id=xxx, /queue?name=QueueName, /queues, /agents/debug' }));
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Availability API running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Availability API running on port ${PORT}`);
+  console.log('Warming up cache...');
+  warmupCache();
+});
