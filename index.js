@@ -8,6 +8,32 @@ const RC_JWT = process.env.RC_JWT;
 let tokenCache = null;
 let tokenExpiry = 0;
 
+// --- RC API Rate Limiter (max 5 concurrent requests) ---
+let rcActiveRequests = 0;
+const RC_MAX_CONCURRENT = 5;
+const rcQueue = [];
+
+function rcThrottle(fn) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      rcActiveRequests++;
+      fn().then(result => {
+        resolve(result);
+      }).catch(err => {
+        reject(err);
+      }).finally(() => {
+        rcActiveRequests--;
+        if (rcQueue.length > 0) rcQueue.shift()();
+      });
+    };
+    if (rcActiveRequests < RC_MAX_CONCURRENT) {
+      run();
+    } else {
+      rcQueue.push(run);
+    }
+  });
+}
+
 // --- Caching ---
 const presenceCache = new Map();
 const PRESENCE_TTL = 15 * 1000; // 15 seconds
@@ -28,8 +54,8 @@ async function getPresenceCached(token, extensionId) {
   const cached = presenceCache.get(extensionId);
   if (cached && now < cached.expiry) return cached.data;
   try {
-    const data = await getPresence(token, extensionId);
-    presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL });
+    const data = await rcThrottle(() => getPresence(token, extensionId));
+    if (data) presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL });
     return data;
   } catch (err) {
     if (cached) return cached.data;
