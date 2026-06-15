@@ -10,7 +10,7 @@ let tokenExpiry = 0;
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 10 * 1000; // 10 seconds
+const PRESENCE_TTL = 20 * 1000; // 20 seconds
 
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
@@ -290,18 +290,10 @@ async function warmupCache() {
     const token = await getAccessToken();
     const queuesData = await getQueuesCached(token);
     const queues = queuesData.records || [];
-    const allMembersData = await Promise.all(
+    await Promise.all(
       queues.map(q => getQueueMembersCached(token, q.id).catch(() => null))
     );
-    const uniqueExtIds = new Set();
-    allMembersData.forEach(md => {
-      if (md && md.records) md.records.forEach(m => uniqueExtIds.add(m.id));
-    });
-    for (const extId of uniqueExtIds) {
-      await getPresenceCached(token, extId).catch(() => null);
-      await new Promise(r => setTimeout(r, 200));
-    }
-    console.log(`Cache warmed: ${queues.length} queues, ${uniqueExtIds.size} agents`);
+    console.log(`Cache warmed: ${queues.length} queues (presence fetched on-demand)`);
   } catch (err) {
     console.error('Cache warmup failed:', err.message);
   }
