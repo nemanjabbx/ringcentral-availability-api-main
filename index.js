@@ -269,9 +269,18 @@ async function checkQueueAvailability(queueName) {
     );
   });
 
+  const activeCalls = presenceResults.filter(p => {
+    if (!p) return false;
+    return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
+  }).length;
+
+  const freeAgents = availableAgents.length - activeCalls;
+
   return {
-    available: availableAgents.length > 0,
-    agents: availableAgents.length,
+    available: freeAgents > 0,
+    agents: Math.max(freeAgents, 0),
+    available_agents: availableAgents.length,
+    active_calls: activeCalls,
     queue: matchedQueue.name,
     total_members: members.length
   };
