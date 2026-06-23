@@ -398,10 +398,14 @@ function scheduleWebhookRenewal() {
 function handleWebhookPresence(body) {
   try {
     const data = JSON.parse(body);
-    if (!data.body) return;
-    const presence = data.body;
-    const extensionId = presence.extensionId || (presence.extension && presence.extension.id);
-    if (!extensionId) return;
+    const presence = data.body || data;
+    const extensionId = presence.extensionId ||
+      (presence.extension && presence.extension.id) ||
+      (data.body && data.body.extension && data.body.extension.id);
+    if (!extensionId) {
+      console.log('Webhook: no extensionId found in payload:', JSON.stringify(data).slice(0, 200));
+      return;
+    }
     presenceCache.set(String(extensionId), {
       data: presence,
       expiry: Date.now() + (60 * 1000)
