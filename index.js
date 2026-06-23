@@ -309,6 +309,14 @@ async function checkQueueAvailability(queueName) {
   };
 }
 
+async function checkAvailabilityWithMinAgents(stateUpper, office, minAgents) {
+  const result = await checkAvailability(stateUpper, office);
+  if (minAgents && result.agents < minAgents) {
+    return { ...result, available: false, reason: `Not enough agents: ${result.agents} available, ${minAgents} required` };
+  }
+  return result;
+}
+
 async function checkAvailability(stateUpper, office) {
   const stateName = STATE_NAME_MAP[stateUpper] || stateUpper;
   const queueName = office ? `${stateName} - ${office}` : stateName;
@@ -353,8 +361,10 @@ const server = http.createServer(async (req, res) => {
     }
     const stateUpper = state.toUpperCase().trim();
     const office = url.searchParams.get('office') ? url.searchParams.get('office').trim() : null;
+    const minAgentsParam = url.searchParams.get('min_agents');
+    const minAgents = minAgentsParam ? parseInt(minAgentsParam, 10) : null;
     try {
-      const result = await checkAvailability(stateUpper, office);
+      const result = await checkAvailabilityWithMinAgents(stateUpper, office, minAgents);
       res.writeHead(200);
       return res.end(JSON.stringify(result));
     } catch (err) {
