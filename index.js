@@ -403,16 +403,18 @@ function handleWebhookPresence(body) {
       (presence.extension && presence.extension.id) ||
       (data.body && data.body.extension && data.body.extension.id);
     if (!extensionId) {
-      console.log('Webhook: no extensionId found in payload:', JSON.stringify(data).slice(0, 200));
+      console.log('[WEBHOOK] No extensionId found in payload:', JSON.stringify(data).slice(0, 300));
       return;
     }
+    const prev = presenceCache.get(String(extensionId));
+    const prevStatus = prev ? `${prev.data.presenceStatus}/${prev.data.telephonyStatus}` : 'none';
     presenceCache.set(String(extensionId), {
       data: presence,
       expiry: Date.now() + (60 * 1000)
     });
-    console.log(`Webhook: updated presence for ext ${extensionId} → ${presence.presenceStatus} / ${presence.telephonyStatus}`);
+    console.log(`[WEBHOOK] ext ${extensionId}: ${prevStatus} → ${presence.presenceStatus}/${presence.telephonyStatus} dnd=${presence.dndStatus}`);
   } catch(e) {
-    console.error('Webhook parse error:', e.message);
+    console.error('[WEBHOOK] Parse error:', e.message, body.slice(0, 200));
   }
 }
 
@@ -588,20 +590,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   // RC Webhook receiver
-  if (pathname === '/webhook/presence' && req.method === 'POST') {
+  if (pathname === '/webhook/presence') {
     const validationToken = req.headers['validation-token'];
     if (validationToken) {
+      console.log(`[WEBHOOK] Validation request received`);
       res.writeHead(200, { 'Validation-Token': validationToken });
       return res.end();
     }
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      handleWebhookPresence(body);
-      res.writeHead(200);
-      res.end();
-    });
-    return;
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        console.log(`[WEBHOOK] Incoming payload (${body.length} bytes):`, body.slice(0, 300));
+        handleWebhookPresence(body);
+        res.writeHead(200);
+        res.end();
+      });
+      return;
+    }
   }
 
   res.writeHead(404);
@@ -611,6 +617,7 @@ const server = http.createServer(async (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Availability API running on port ${PORT}`);
+  console.log(`WEBHOOK_URL: ${WEBHOOK_URL || 'NOT SET'}`);
   console.log('Warming up cache...');
   await warmupCache();
   try {
