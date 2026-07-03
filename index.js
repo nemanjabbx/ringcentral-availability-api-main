@@ -42,7 +42,7 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 15 * 1000; // 15 seconds
+const PRESENCE_TTL = 10 * 1000; // 10 seconds (webhook updates instantly, this is fallback)
 
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
