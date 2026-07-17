@@ -18,8 +18,8 @@ let tokenExpiry = 0;
 let rcActiveRequests = 0;
 const RC_MAX_CONCURRENT = 3;
 const rcQueue = [];
-let rcRateLimitedUntil = Date.now() + 3 * 60 * 1000; // 3 min cooldown on startup
-console.log('[RATE LIMIT] Startup cooldown: blocking RC requests for 3 minutes');
+let rcRateLimitedUntil = Date.now() + 10 * 60 * 1000; // 10 min cooldown on startup
+console.log('[RATE LIMIT] Startup cooldown: blocking RC requests for 10 minutes');
 
 function rcThrottle(fn) {
   return new Promise((resolve, reject) => {
