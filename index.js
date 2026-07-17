@@ -89,7 +89,7 @@ async function getQueueMembersCached(token, queueId) {
   const cached = queueMembersCache.get(queueId);
   if (cached && now < cached.expiry) return cached.data;
   try {
-    const data = await getQueueMembers(token, queueId);
+    const data = await rcThrottle(() => getQueueMembers(token, queueId));
     queueMembersCache.set(queueId, { data, expiry: now + QUEUE_MEMBERS_TTL });
     return data;
   } catch (err) {
@@ -102,7 +102,7 @@ async function getQueuesCached(token) {
   const now = Date.now();
   if (queuesCache && now < queuesCacheExpiry) return queuesCache;
   try {
-    const data = await getQueues(token);
+    const data = await rcThrottle(() => getQueues(token));
     queuesCache = data;
     queuesCacheExpiry = now + QUEUES_TTL;
     return data;
@@ -210,7 +210,11 @@ async function getQueues(token) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
+        try {
+          const json = JSON.parse(data);
+          if (json.errorCode && json.errorCode.includes('CMN-301')) reject(new Error('RC error CMN-301: Request rate exceeded'));
+          else resolve(json);
+        }
         catch(e) { reject(new Error('Failed to parse queues: ' + data)); }
       });
     });
