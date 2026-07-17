@@ -479,7 +479,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Error:', err.message);
-      res.writeHead(500);
+      const status = err.message && err.message.includes('CMN-301') ? 200 : 500;
+      res.writeHead(status);
       return res.end(JSON.stringify({ available: false, error: err.message }));
     }
   }
@@ -502,7 +503,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Error:', err.message);
-      res.writeHead(500);
+      const status = err.message && err.message.includes('CMN-301') ? 200 : 500;
+      res.writeHead(status);
       return res.end(JSON.stringify({ available: false, error: err.message }));
     }
   }
@@ -520,7 +522,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Error:', err.message);
-      res.writeHead(500);
+      const status = err.message && err.message.includes('CMN-301') ? 200 : 500;
+      res.writeHead(status);
       return res.end(JSON.stringify({ available: false, error: err.message }));
     }
   }
@@ -533,7 +536,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(result));
     } catch (err) {
       console.error('Error:', err.message);
-      res.writeHead(500);
+      const status = err.message && err.message.includes('CMN-301') ? 200 : 500;
+      res.writeHead(status);
       return res.end(JSON.stringify({ available: false, error: err.message }));
     }
   }
