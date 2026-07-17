@@ -16,7 +16,7 @@ let tokenExpiry = 0;
 
 // --- RC API Rate Limiter (max 5 concurrent requests) ---
 let rcActiveRequests = 0;
-const RC_MAX_CONCURRENT = 5;
+const RC_MAX_CONCURRENT = 2;
 const rcQueue = [];
 
 function rcThrottle(fn) {
@@ -42,7 +42,7 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 15 * 1000; // 15 seconds (webhook updates instantly, this is fallback)
+const PRESENCE_TTL = 30 * 1000; // 30 seconds (webhook updates instantly, this is fallback)
 
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
