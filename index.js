@@ -14,18 +14,27 @@ const RC_JWT = process.env.RC_JWT;
 let tokenCache = null;
 let tokenExpiry = 0;
 
-// --- RC API Rate Limiter (max 5 concurrent requests) ---
+// --- RC API Rate Limiter (max 2 concurrent requests) ---
 let rcActiveRequests = 0;
 const RC_MAX_CONCURRENT = 2;
 const rcQueue = [];
+let rcRateLimitedUntil = 0;
 
 function rcThrottle(fn) {
   return new Promise((resolve, reject) => {
+    const now = Date.now();
+    if (now < rcRateLimitedUntil) {
+      return reject(new Error('RC error CMN-301: Request rate exceeded (cooldown)'));
+    }
     const run = () => {
       rcActiveRequests++;
       fn().then(result => {
         resolve(result);
       }).catch(err => {
+        if (err.message && err.message.includes('CMN-301')) {
+          rcRateLimitedUntil = Date.now() + 5000;
+          console.log('[RATE LIMIT] CMN-301 hit, cooling down 5s');
+        }
         reject(err);
       }).finally(() => {
         rcActiveRequests--;
