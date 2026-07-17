@@ -32,8 +32,8 @@ function rcThrottle(fn) {
         resolve(result);
       }).catch(err => {
         if (err.message && err.message.includes('CMN-301')) {
-          rcRateLimitedUntil = Date.now() + 5000;
-          console.log('[RATE LIMIT] CMN-301 hit, cooling down 5s');
+          rcRateLimitedUntil = Date.now() + 120000;
+          console.log('[RATE LIMIT] CMN-301 hit, cooling down 2 minutes');
         }
         reject(err);
       }).finally(() => {
