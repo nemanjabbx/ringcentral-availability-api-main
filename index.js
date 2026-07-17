@@ -461,6 +461,29 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: 'ok', message: 'Availability API is running' }));
   }
 
+  // Manual cooldown control: /cooldown?minutes=10
+  if (pathname === '/cooldown') {
+    const minutes = parseInt(url.searchParams.get('minutes') || '10', 10);
+    rcRateLimitedUntil = Date.now() + minutes * 60 * 1000;
+    const until = new Date(rcRateLimitedUntil).toISOString();
+    console.log(`[RATE LIMIT] Manual cooldown activated for ${minutes} minutes (until ${until})`);
+    res.writeHead(200);
+    return res.end(JSON.stringify({ status: 'cooldown_active', minutes, until }));
+  }
+
+  // Cooldown status: /cooldown/status
+  if (pathname === '/cooldown/status') {
+    const now = Date.now();
+    const active = now < rcRateLimitedUntil;
+    const remainingMs = active ? rcRateLimitedUntil - now : 0;
+    res.writeHead(200);
+    return res.end(JSON.stringify({
+      active,
+      remaining_seconds: Math.round(remainingMs / 1000),
+      until: active ? new Date(rcRateLimitedUntil).toISOString() : null
+    }));
+  }
+
   // Legacy: state-based availability /availability?state=FL
   if (pathname === '/availability') {
     const state = url.searchParams.get('state');
