@@ -16,7 +16,7 @@ let tokenExpiry = 0;
 
 // --- RC API Rate Limiter (max 2 concurrent requests) ---
 let rcActiveRequests = 0;
-const RC_MAX_CONCURRENT = 2;
+const RC_MAX_CONCURRENT = 3;
 const rcQueue = [];
 let rcRateLimitedUntil = 0;
 
