@@ -64,6 +64,12 @@ async function getPresenceCached(token, extensionId) {
     if (data) presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL });
     return data;
   } catch (err) {
+    if (err.message && err.message.includes('CMN-301')) {
+      if (cached) {
+        presenceCache.set(extensionId, { data: cached.data, expiry: now + 60 * 1000 });
+        return cached.data;
+      }
+    }
     if (cached) return cached.data;
     throw err;
   }
