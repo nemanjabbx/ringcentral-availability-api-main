@@ -634,8 +634,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Availability API running on port ${PORT}`);
   console.log(`WEBHOOK_URL: ${WEBHOOK_URL || 'NOT SET'}`);
-  console.log('Warming up cache...');
-  await warmupCache();
+  console.log('Skipping warmup - cache will populate on demand');
   try {
     const token = await getAccessToken();
     await createWebhookSubscription(token);
