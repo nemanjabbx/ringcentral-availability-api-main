@@ -256,7 +256,14 @@ async function getPresence(token, extensionId) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
+        try {
+          const json = JSON.parse(data);
+          if (json.errorCode && json.errorCode.includes('CMN-301')) {
+            reject(new Error('RC error CMN-301: Request rate exceeded'));
+          } else {
+            resolve(json);
+          }
+        }
         catch(e) { resolve(null); }
       });
     });
