@@ -357,6 +357,46 @@ async function checkAvailability(stateUpper, office) {
 }
 
 // --- RC Webhook Subscription ---
+async function deleteOldSubscriptions(token) {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'platform.ringcentral.com',
+      path: '/restapi/v1.0/subscription',
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', async () => {
+        try {
+          const json = JSON.parse(data);
+          const subs = json.records || [];
+          console.log(`[WEBHOOK] Found ${subs.length} existing subscriptions, deleting...`);
+          for (const sub of subs) {
+            await new Promise((done) => {
+              const delReq = https.request({
+                hostname: 'platform.ringcentral.com',
+                path: `/restapi/v1.0/subscription/${sub.id}`,
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+              }, (r) => { r.resume(); r.on('end', done); });
+              delReq.on('error', done);
+              delReq.end();
+            });
+            console.log(`[WEBHOOK] Deleted subscription: ${sub.id}`);
+          }
+        } catch(e) {
+          console.error('[WEBHOOK] Failed to delete old subscriptions:', e.message);
+        }
+        resolve();
+      });
+    });
+    req.on('error', () => resolve());
+    req.end();
+  });
+}
+
 async function createWebhookSubscription(token) {
   if (!WEBHOOK_URL) {
     console.log('WEBHOOK_URL not set, skipping webhook subscription');
@@ -674,6 +714,7 @@ server.listen(PORT, async () => {
   console.log('Skipping warmup - cache will populate on demand');
   try {
     const token = await getAccessToken();
+    await deleteOldSubscriptions(token);
     await createWebhookSubscription(token);
   } catch(err) {
     console.error('Failed to create webhook subscription:', err.message);
