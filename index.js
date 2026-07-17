@@ -51,7 +51,7 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 8 * 1000; // 8 seconds (webhook updates instantly, this is fallback)
+const PRESENCE_TTL = 60 * 1000; // 60 seconds - RC heavy API limit is 10 req/60sec per extension, webhook updates instantly
 
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
