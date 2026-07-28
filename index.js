@@ -56,6 +56,9 @@ const PRESENCE_TTL = 60 * 1000; // 60 seconds - RC heavy API limit is 10 req/60s
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
 
+const queuePresenceCache = new Map();
+const QUEUE_PRESENCE_TTL = 5 * 60 * 1000; // 5 minutes
+
 let queuesCache = null;
 let queuesCacheExpiry = 0;
 const QUEUES_TTL = 5 * 60 * 1000; // 5 minutes
@@ -123,6 +126,47 @@ async function getExtensionsCached(token) {
   } catch (err) {
     if (extensionsCache) return extensionsCache;
     throw err;
+  }
+}
+
+async function getCallQueuePresence(token, extensionId) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'platform.ringcentral.com',
+      path: `/restapi/v1.0/account/~/extension/${extensionId}/call-queue-presence`,
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.errorCode && json.errorCode.includes('CMN-301')) {
+            reject(new Error('RC error CMN-301: Request rate exceeded'));
+          } else {
+            resolve(json);
+          }
+        } catch(e) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.end();
+  });
+}
+
+async function getCallQueuePresenceCached(token, extensionId) {
+  const now = Date.now();
+  const cached = queuePresenceCache.get(String(extensionId));
+  if (cached && now < cached.expiry) return cached.data;
+  try {
+    const data = await rcThrottle(() => getCallQueuePresence(token, extensionId));
+    if (data) queuePresenceCache.set(String(extensionId), { data, expiry: now + QUEUE_PRESENCE_TTL });
+    return data;
+  } catch (err) {
+    if (cached) return cached.data;
+    return null;
   }
 }
 
@@ -315,21 +359,29 @@ async function checkQueueAvailability(queueName) {
   const members = membersData.records || [];
 
   const presenceResults = await Promise.all(
-    members.map(m => getPresenceCached(token, m.id).catch(() => null))
+    members.map(async (m) => {
+      const presence = await getPresenceCached(token, m.id).catch(() => null);
+      const queuePresence = await getCallQueuePresenceCached(token, m.id).catch(() => null);
+      const acceptsQueueCalls = queuePresence && queuePresence.records
+        ? queuePresence.records.some(r => r.callQueue && r.callQueue.id === matchedQueue.id && r.acceptCalls === true)
+        : true;
+      return { presence, acceptsQueueCalls };
+    })
   );
 
-  const availableAgents = presenceResults.filter(p => {
-    if (!p) return false;
+  const availableAgents = presenceResults.filter(({ presence, acceptsQueueCalls }) => {
+    if (!presence) return false;
+    if (!acceptsQueueCalls) return false;
     return (
-      p.presenceStatus === 'Available' &&
-      p.dndStatus === 'TakeAllCalls' &&
-      p.telephonyStatus === 'NoCall'
+      presence.presenceStatus === 'Available' &&
+      presence.dndStatus === 'TakeAllCalls' &&
+      presence.telephonyStatus === 'NoCall'
     );
   });
 
-  const activeCalls = presenceResults.filter(p => {
-    if (!p) return false;
-    return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
+  const activeCalls = presenceResults.filter(({ presence }) => {
+    if (!presence) return false;
+    return presence.telephonyStatus === 'CallConnected' || presence.telephonyStatus === 'OnHold' || presence.telephonyStatus === 'Ringing';
   }).length;
 
   return {
