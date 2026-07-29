@@ -362,9 +362,19 @@ async function checkQueueAvailability(queueName) {
     members.map(async (m) => {
       const presence = await getPresenceCached(token, m.id).catch(() => null);
       const queuePresence = await getCallQueuePresenceCached(token, m.id).catch(() => null);
-      const acceptsQueueCalls = queuePresence && queuePresence.records
-        ? queuePresence.records.some(r => r.callQueue && r.callQueue.id === matchedQueue.id && r.acceptCalls === true)
-        : true;
+      let acceptsQueueCalls = true;
+      if (queuePresence && queuePresence.records) {
+        const match = queuePresence.records.find(r => r.callQueue && r.callQueue.id === matchedQueue.id);
+        if (match) {
+          acceptsQueueCalls = match.acceptCalls === true;
+        } else {
+          console.log(`[QUEUE-PRESENCE] ext=${m.id} no match for queueId=${matchedQueue.id} records=${JSON.stringify(queuePresence.records.map(r => ({ id: r.callQueue && r.callQueue.id, accept: r.acceptCalls })))}`);
+        }
+      } else {
+        console.log(`[QUEUE-PRESENCE] ext=${m.id} null response — defaulting acceptsQueueCalls=true`);
+      }
+      const presStatus = presence ? `${presence.presenceStatus}/${presence.telephonyStatus}/${presence.dndStatus}` : 'null';
+      console.log(`[AGENT] ext=${m.id} presence=${presStatus} acceptsQueue=${acceptsQueueCalls}`);
       return { presence, acceptsQueueCalls };
     })
   );
@@ -378,6 +388,7 @@ async function checkQueueAvailability(queueName) {
       presence.telephonyStatus === 'NoCall'
     );
   });
+  console.log(`[RESULT] queue=${matchedQueue.name} available=${availableAgents.length}/${members.length}`);
 
   const activeCalls = presenceResults.filter(({ presence }) => {
     if (!presence) return false;
