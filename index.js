@@ -170,6 +170,10 @@ async function getCallQueuePresenceCached(token, extensionId) {
   }
 }
 
+// --- Call log storage (in-memory, last 500 calls) ---
+const callLog = [];
+const CALL_LOG_MAX = 500;
+
 // --- State map ---
 const STATE_NAME_MAP = {
   'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
@@ -769,6 +773,8 @@ const server = http.createServer(async (req, res) => {
         const state = data.state || data.callerState || '';
         console.log(`[RINGBA] ${ts} | caller=${caller} | target=${target} | state=${state} | duration=${duration}s | disposition=${disposition}`);
         console.log(`[RINGBA] raw=${JSON.stringify(data)}`);
+        callLog.unshift({ ts, caller, target, state, duration, disposition, raw: data });
+        if (callLog.length > CALL_LOG_MAX) callLog.pop();
       } catch(e) {
         console.log(`[RINGBA] postback parse error: ${e.message} | raw=${body.slice(0,300)}`);
       }
@@ -778,8 +784,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/call') {
+    const number = url.searchParams.get('number') || '';
+    const clean = number.replace(/\D/g, '');
+    const matches = callLog.filter(c => c.caller && c.caller.replace(/\D/g, '').endsWith(clean));
+    res.writeHead(200);
+    return res.end(JSON.stringify({ number, matches_found: matches.length, calls: matches }));
+  }
+
+  if (pathname === '/calls') {
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    res.writeHead(200);
+    return res.end(JSON.stringify({ total: callLog.length, calls: callLog.slice(0, limit) }));
+  }
+
   res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found. Available: /availability?state=TX, /agent?id=xxx, /queue?name=QueueName, /queues, /agents/debug' }));
+  res.end(JSON.stringify({ error: 'Not found. Available: /availability?state=TX, /agent?id=xxx, /queue?name=QueueName, /queues, /calls, /call?number=5551234567' }));
 });
 
 const PORT = process.env.PORT || 3000;
