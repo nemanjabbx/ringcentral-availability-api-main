@@ -359,40 +359,27 @@ async function checkQueueAvailability(queueName) {
   const members = membersData.records || [];
 
   const presenceResults = await Promise.all(
-    members.map(async (m) => {
-      const presence = await getPresenceCached(token, m.id).catch(() => null);
-      const queuePresence = await getCallQueuePresenceCached(token, m.id).catch(() => null);
-      let acceptsQueueCalls = true;
-      if (queuePresence && queuePresence.records) {
-        const match = queuePresence.records.find(r => r.callQueue && r.callQueue.id === matchedQueue.id);
-        if (match) {
-          acceptsQueueCalls = match.acceptCalls === true;
-        } else {
-          console.log(`[QUEUE-PRESENCE] ext=${m.id} no match for queueId=${matchedQueue.id} records=${JSON.stringify(queuePresence.records.map(r => ({ id: r.callQueue && r.callQueue.id, accept: r.acceptCalls })))}`);
-        }
-      } else {
-        console.log(`[QUEUE-PRESENCE] ext=${m.id} null response — defaulting acceptsQueueCalls=true`);
-      }
-      const presStatus = presence ? `${presence.presenceStatus}/${presence.telephonyStatus}/${presence.dndStatus}` : 'null';
-      console.log(`[AGENT] ext=${m.id} presence=${presStatus} acceptsQueue=${acceptsQueueCalls}`);
-      return { presence, acceptsQueueCalls };
-    })
+    members.map(async (m) => getPresenceCached(token, m.id).catch(() => null))
   );
 
-  const availableAgents = presenceResults.filter(({ presence, acceptsQueueCalls }) => {
-    if (!presence) return false;
-    if (!acceptsQueueCalls) return false;
+  const availableAgents = presenceResults.filter(p => {
+    if (!p) return false;
     return (
-      presence.presenceStatus === 'Available' &&
-      presence.dndStatus === 'TakeAllCalls' &&
-      presence.telephonyStatus === 'NoCall'
+      p.presenceStatus === 'Available' &&
+      p.dndStatus === 'TakeAllCalls' &&
+      p.telephonyStatus === 'NoCall'
     );
   });
-  console.log(`[RESULT] queue=${matchedQueue.name} available=${availableAgents.length}/${members.length}`);
+  console.log(`[RESULT] queue=${matchedQueue.name} available=${availableAgents.length}/${members.length} agents=${availableAgents.map(p => p.extensionId || '?').join(',')}`);
+  presenceResults.forEach((p, i) => {
+    if (!p) return;
+    const status = `${p.presenceStatus}/${p.telephonyStatus}/${p.dndStatus}`;
+    console.log(`[AGENT] ext=${members[i] && members[i].id} ${status}`);
+  });
 
-  const activeCalls = presenceResults.filter(({ presence }) => {
-    if (!presence) return false;
-    return presence.telephonyStatus === 'CallConnected' || presence.telephonyStatus === 'OnHold' || presence.telephonyStatus === 'Ringing';
+  const activeCalls = presenceResults.filter(p => {
+    if (!p) return false;
+    return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
   return {
