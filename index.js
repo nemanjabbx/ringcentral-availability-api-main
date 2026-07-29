@@ -753,6 +753,31 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (pathname === '/ringba-postback') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const params = new URLSearchParams(body);
+        const data = {};
+        for (const [k, v] of params.entries()) data[k] = v;
+        const ts = new Date().toISOString();
+        const caller = data.caller || data.inboundCallId || data.callId || 'unknown';
+        const target = data.targetName || data.targetId || data.target || 'unknown';
+        const duration = data.duration || data.callDuration || '?';
+        const disposition = data.disposition || data.callStatus || data.connectedCallDuration || 'unknown';
+        const state = data.state || data.callerState || '';
+        console.log(`[RINGBA] ${ts} | caller=${caller} | target=${target} | state=${state} | duration=${duration}s | disposition=${disposition}`);
+        console.log(`[RINGBA] raw=${JSON.stringify(data)}`);
+      } catch(e) {
+        console.log(`[RINGBA] postback parse error: ${e.message} | raw=${body.slice(0,300)}`);
+      }
+      res.writeHead(200);
+      res.end('OK');
+    });
+    return;
+  }
+
   res.writeHead(404);
   res.end(JSON.stringify({ error: 'Not found. Available: /availability?state=TX, /agent?id=xxx, /queue?name=QueueName, /queues, /agents/debug' }));
 });
