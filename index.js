@@ -784,6 +784,48 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/rc-call') {
+    const number = url.searchParams.get('number') || '';
+    if (!number) {
+      res.writeHead(400);
+      return res.end(JSON.stringify({ error: 'Missing number parameter. Use ?number=2708942933' }));
+    }
+    try {
+      const token = await getAccessToken();
+      const encoded = encodeURIComponent(number);
+      const data = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'platform.ringcentral.com',
+          path: `/restapi/v1.0/account/~/call-log?phoneNumber=${encoded}&direction=Inbound&perPage=10&view=Detailed`,
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        };
+        const req2 = https.request(options, (r) => {
+          let d = '';
+          r.on('data', c => d += c);
+          r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+        });
+        req2.on('error', reject);
+        req2.end();
+      });
+      const records = (data.records || []).map(r => ({
+        start: r.startTime,
+        duration: r.duration,
+        result: r.result,
+        direction: r.direction,
+        caller: r.from && r.from.phoneNumber,
+        callee: r.to && r.to.phoneNumber,
+        extension: r.to && r.to.extensionNumber,
+        agent: r.to && r.to.name
+      }));
+      res.writeHead(200);
+      return res.end(JSON.stringify({ number, total: records.length, calls: records }));
+    } catch(err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   if (pathname === '/call') {
     const number = url.searchParams.get('number') || '';
     const clean = number.replace(/\D/g, '');
