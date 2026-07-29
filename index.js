@@ -804,7 +804,10 @@ const server = http.createServer(async (req, res) => {
         const req2 = https.request(options, (r) => {
           let d = '';
           r.on('data', c => d += c);
-          r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+          r.on('end', () => {
+            console.log(`[RC-CALL] status=${r.statusCode} phoneNumber=${number} raw=${d.slice(0,500)}`);
+            try { resolve(JSON.parse(d)); } catch(e) { reject(e); }
+          });
         });
         req2.on('error', reject);
         req2.end();
