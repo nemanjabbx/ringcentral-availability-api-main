@@ -793,10 +793,11 @@ const server = http.createServer(async (req, res) => {
     try {
       const token = await getAccessToken();
       const encoded = encodeURIComponent(number);
+      const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const data = await new Promise((resolve, reject) => {
         const options = {
           hostname: 'platform.ringcentral.com',
-          path: `/restapi/v1.0/account/~/call-log?phoneNumber=${encoded}&direction=Inbound&perPage=10&view=Detailed`,
+          path: `/restapi/v1.0/account/~/call-log?phoneNumber=${encoded}&dateFrom=${dateFrom}&perPage=20&view=Detailed`,
           method: 'GET',
           headers: { 'Authorization': `Bearer ${token}` }
         };
