@@ -784,6 +784,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/ext') {
+    const extId = url.searchParams.get('id') || '';
+    if (!extId) {
+      res.writeHead(400);
+      return res.end(JSON.stringify({ error: 'Missing id parameter. Use ?id=770314052' }));
+    }
+    try {
+      const token = await getAccessToken();
+      const data = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'platform.ringcentral.com',
+          path: `/restapi/v1.0/account/~/extension/${extId}`,
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        };
+        const req2 = https.request(options, (r) => {
+          let d = '';
+          r.on('data', c => d += c);
+          r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+        });
+        req2.on('error', reject);
+        req2.end();
+      });
+      res.writeHead(200);
+      return res.end(JSON.stringify({
+        id: extId,
+        name: data.name,
+        extensionNumber: data.extensionNumber,
+        type: data.type,
+        status: data.status,
+        contact: data.contact && data.contact.firstName ? `${data.contact.firstName} ${data.contact.lastName || ''}`.trim() : null,
+        email: data.contact && data.contact.email
+      }));
+    } catch(err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   if (pathname === '/rc-call') {
     const number = url.searchParams.get('number') || '';
     if (!number) {
