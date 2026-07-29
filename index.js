@@ -808,16 +808,28 @@ const server = http.createServer(async (req, res) => {
         req2.on('error', reject);
         req2.end();
       });
-      const records = (data.records || []).map(r => ({
-        start: r.startTime,
-        duration: r.duration,
-        result: r.result,
-        direction: r.direction,
-        caller: r.from && r.from.phoneNumber,
-        callee: r.to && r.to.phoneNumber,
-        extension: r.to && r.to.extensionNumber,
-        agent: r.to && r.to.name
-      }));
+      const records = (data.records || []).map(r => {
+        const legs = (r.legs || []).map(l => ({
+          action: l.action,
+          result: l.result,
+          duration: l.duration,
+          extension: l.extension && l.extension.extensionNumber,
+          agent: l.extension && l.extension.name,
+          type: l.type
+        }));
+        const queueLeg = legs.find(l => l.type === 'Accept' || (l.agent && l.agent.toLowerCase().includes('queue')) || l.action === 'QueueCall');
+        const agentLegs = legs.filter(l => l.type === 'Accept' || l.action === 'HoldOff' || l.action === 'CallAccepted' || l.action === 'Missed');
+        return {
+          start: r.startTime,
+          duration: r.duration,
+          result: r.result,
+          caller: r.from && r.from.phoneNumber,
+          callee: r.to && r.to.phoneNumber,
+          queue: queueLeg ? (queueLeg.agent || queueLeg.extension) : (r.to && r.to.name),
+          agents_offered: agentLegs.length > 0 ? agentLegs : legs,
+          all_legs: legs
+        };
+      });
       res.writeHead(200);
       return res.end(JSON.stringify({ number, total: records.length, calls: records }));
     } catch(err) {
