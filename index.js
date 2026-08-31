@@ -51,7 +51,8 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 15 * 1000; // 15 seconds - RC heavy API limit is 10 req/60sec per extension, webhook updates instantly
+const PRESENCE_TTL = 30 * 1000; // 30 seconds - on-demand fetches (no webhook backing)
+const PRESENCE_WEBHOOK_TTL = 5 * 60 * 1000; // 5 minutes - webhook-backed entries; webhook updates instantly on any change
 
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
@@ -70,10 +71,20 @@ const EXTENSIONS_TTL = 10 * 60 * 1000; // 10 minutes
 async function getPresenceCached(token, extensionId) {
   const now = Date.now();
   const cached = presenceCache.get(extensionId);
-  if (cached && now < cached.expiry) return cached.data;
+  if (cached) {
+    // Webhook-backed entries are trusted for their full TTL only while the
+    // webhook subscription is active. If the webhook is down, fall back to the
+    // short on-demand TTL so we don't serve stale data for up to 5 minutes.
+    if (cached.source === 'webhook' && !webhookSubscriptionId) {
+      const effectiveExpiry = (cached.webhookAt || 0) + PRESENCE_TTL;
+      if (now < effectiveExpiry) return cached.data;
+    } else if (now < cached.expiry) {
+      return cached.data;
+    }
+  }
   try {
     const data = await rcThrottle(() => getPresence(token, extensionId));
-    if (data) presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL });
+    if (data) presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL, source: 'ondemand' });
     return data;
   } catch (err) {
     if (err.message && err.message.includes('CMN-301')) {
@@ -530,7 +541,9 @@ function handleWebhookPresence(body) {
     const prevStatus = prev ? `${prev.data.presenceStatus}/${prev.data.telephonyStatus}` : 'none';
     presenceCache.set(String(extensionId), {
       data: presence,
-      expiry: Date.now() + (60 * 1000)
+      expiry: Date.now() + PRESENCE_WEBHOOK_TTL,
+      source: 'webhook',
+      webhookAt: Date.now()
     });
     console.log(`[WEBHOOK] ext ${extensionId}: ${prevStatus} → ${presence.presenceStatus}/${presence.telephonyStatus} dnd=${presence.dndStatus}`);
   } catch(e) {
