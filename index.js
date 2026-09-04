@@ -625,12 +625,73 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Legacy: agent by ID /agent?id=0000as
+  // Agent availability: /agent?ext=183 (by RC extension number) or /agent?id=xxx (legacy)
   if (pathname === '/agent') {
+    const ext = url.searchParams.get('ext');
     const id = url.searchParams.get('id');
+
+    // New: per-agent availability by RC extension number
+    if (ext) {
+      try {
+        const token = await getAccessToken();
+        const lookup = await new Promise((resolve) => {
+          const options = {
+            hostname: 'platform.ringcentral.com',
+            path: `/restapi/v1.0/account/~/extension?extensionNumber=${encodeURIComponent(ext)}`,
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+          };
+          const r = https.request(options, (rcRes) => {
+            let data = '';
+            rcRes.on('data', chunk => data += chunk);
+            rcRes.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
+          });
+          r.on('error', () => resolve(null));
+          r.end();
+        });
+        const records = (lookup && lookup.records) || [];
+        if (!records.length) {
+          res.writeHead(404);
+          return res.end(JSON.stringify({ available: false, ext, reason: 'Extension not found' }));
+        }
+        const extId = records[0].id;
+        const extName = records[0].name;
+        const presence = await getPresenceCached(token, extId);
+        if (!presence || presence.errorCode) {
+          res.writeHead(404);
+          return res.end(JSON.stringify({ available: false, ext, reason: (presence && presence.message) || 'Agent not found' }));
+        }
+        const isAvailable = (
+          presence.presenceStatus === 'Available' &&
+          presence.dndStatus === 'TakeAllCalls' &&
+          presence.telephonyStatus === 'NoCall'
+        );
+        let reason = null;
+        if (!isAvailable) {
+          if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
+          else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
+          else reason = presence.presenceStatus;
+        }
+        res.writeHead(200);
+        return res.end(JSON.stringify({
+          available: isAvailable,
+          ext,
+          name: extName,
+          presenceStatus: presence.presenceStatus,
+          dndStatus: presence.dndStatus,
+          telephonyStatus: presence.telephonyStatus,
+          ...(reason && { reason })
+        }));
+      } catch (err) {
+        res.writeHead(500);
+        return res.end(JSON.stringify({ error: err.message }));
+      }
+    }
+
+    // Legacy: /agent?id=xxx (maps to queue name)
     if (!id) {
       res.writeHead(400);
-      return res.end(JSON.stringify({ available: false, error: 'Missing id parameter' }));
+      return res.end(JSON.stringify({ available: false, error: 'Missing ext or id parameter' }));
     }
     const queueName = AGENT_MAP[id.toLowerCase().trim()];
     if (!queueName) {
@@ -749,69 +810,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Per-agent availability: /agent?ext=EXTENSION_NUMBER
-  if (pathname === '/agent') {
-    const ext = url.searchParams.get('ext');
-    if (!ext) {
-      res.writeHead(400);
-      return res.end(JSON.stringify({ error: 'Missing ext parameter' }));
-    }
-    try {
-      const token = await getAccessToken();
-      // Resolve extension number to internal RC extension ID
-      const lookup = await new Promise((resolve) => {
-        const options = {
-          hostname: 'platform.ringcentral.com',
-          path: `/restapi/v1.0/account/~/extension?extensionNumber=${encodeURIComponent(ext)}`,
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` }
-        };
-        const r = https.request(options, (rcRes) => {
-          let data = '';
-          rcRes.on('data', chunk => data += chunk);
-          rcRes.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
-        });
-        r.on('error', () => resolve(null));
-        r.end();
-      });
-      const records = (lookup && lookup.records) || [];
-      if (!records.length) {
-        res.writeHead(404);
-        return res.end(JSON.stringify({ available: false, ext, reason: 'Extension not found' }));
-      }
-      const extId = records[0].id;
-      const extName = records[0].name;
-      const presence = await getPresenceCached(token, extId);
-      if (!presence || presence.errorCode) {
-        res.writeHead(404);
-        return res.end(JSON.stringify({ available: false, ext, reason: presence && presence.message || 'Agent not found' }));
-      }
-      const isAvailable = (
-        presence.presenceStatus === 'Available' &&
-        presence.dndStatus === 'TakeAllCalls' &&
-        presence.telephonyStatus === 'NoCall'
-      );
-      let reason = null;
-      if (!isAvailable) {
-        if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
-        else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
-        else reason = presence.presenceStatus;
-      }
-      res.writeHead(200);
-      return res.end(JSON.stringify({
-        available: isAvailable,
-        ext,
-        name: extName,
-        presenceStatus: presence.presenceStatus,
-        dndStatus: presence.dndStatus,
-        telephonyStatus: presence.telephonyStatus,
-        ...(reason && { reason })
-      }));
-    } catch (err) {
-      res.writeHead(500);
-      return res.end(JSON.stringify({ error: err.message }));
-    }
-  }
 
   // RC Webhook receiver
   if (pathname === '/webhook/presence') {
