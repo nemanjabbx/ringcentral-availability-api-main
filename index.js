@@ -749,7 +749,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Per-agent availability: /agent?ext=EXTENSION_ID
+  // Per-agent availability: /agent?ext=EXTENSION_NUMBER
   if (pathname === '/agent') {
     const ext = url.searchParams.get('ext');
     if (!ext) {
@@ -758,7 +758,30 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       const token = await getAccessToken();
-      const presence = await getPresenceCached(token, ext);
+      // Resolve extension number to internal RC extension ID
+      const lookup = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'platform.ringcentral.com',
+          path: `/restapi/v1.0/account/~/extension?extensionNumber=${encodeURIComponent(ext)}`,
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        };
+        const r = https.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
+        });
+        r.on('error', () => resolve(null));
+        r.end();
+      });
+      const records = lookup && lookup.records || [];
+      if (!records.length) {
+        res.writeHead(404);
+        return res.end(JSON.stringify({ available: false, ext, reason: 'Extension not found' }));
+      }
+      const extId = records[0].id;
+      const extName = records[0].name;
+      const presence = await getPresenceCached(token, extId);
       if (!presence) {
         res.writeHead(404);
         return res.end(JSON.stringify({ available: false, ext, reason: 'Agent not found' }));
@@ -778,6 +801,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({
         available: isAvailable,
         ext,
+        name: extName,
         presenceStatus: presence.presenceStatus,
         dndStatus: presence.dndStatus,
         telephonyStatus: presence.telephonyStatus,
