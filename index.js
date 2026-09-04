@@ -749,6 +749,46 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Per-agent availability: /agent?ext=EXTENSION_ID
+  if (pathname === '/agent') {
+    const ext = url.searchParams.get('ext');
+    if (!ext) {
+      res.writeHead(400);
+      return res.end(JSON.stringify({ error: 'Missing ext parameter' }));
+    }
+    try {
+      const token = await getAccessToken();
+      const presence = await getPresenceCached(token, ext);
+      if (!presence) {
+        res.writeHead(404);
+        return res.end(JSON.stringify({ available: false, ext, reason: 'Agent not found' }));
+      }
+      const isAvailable = (
+        presence.presenceStatus === 'Available' &&
+        presence.dndStatus === 'TakeAllCalls' &&
+        presence.telephonyStatus === 'NoCall'
+      );
+      let reason = null;
+      if (!isAvailable) {
+        if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
+        else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
+        else reason = presence.presenceStatus;
+      }
+      res.writeHead(200);
+      return res.end(JSON.stringify({
+        available: isAvailable,
+        ext,
+        presenceStatus: presence.presenceStatus,
+        dndStatus: presence.dndStatus,
+        telephonyStatus: presence.telephonyStatus,
+        ...(reason && { reason })
+      }));
+    } catch (err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   // RC Webhook receiver
   if (pathname === '/webhook/presence') {
     const validationToken = req.headers['validation-token'];
