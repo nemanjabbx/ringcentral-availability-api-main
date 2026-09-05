@@ -656,19 +656,42 @@ const server = http.createServer(async (req, res) => {
         }
         const extId = records[0].id;
         const extName = records[0].name;
-        const presence = await getPresenceCached(token, extId);
+        // Fetch presence and device registration in parallel
+        const [presence, deviceData] = await Promise.all([
+          getPresenceCached(token, extId),
+          new Promise((resolve) => {
+            const opts = {
+              hostname: 'platform.ringcentral.com',
+              path: `/restapi/v1.0/account/~/extension/${extId}/device`,
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${token}` }
+            };
+            const r = https.request(opts, (rcRes) => {
+              let data = '';
+              rcRes.on('data', chunk => data += chunk);
+              rcRes.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
+            });
+            r.on('error', () => resolve(null));
+            r.end();
+          })
+        ]);
         if (!presence || presence.errorCode) {
           res.writeHead(404);
           return res.end(JSON.stringify({ available: false, ext, reason: (presence && presence.message) || 'Agent not found' }));
         }
+        // Check if agent has at least one registered (online) device
+        const devices = (deviceData && deviceData.records) || [];
+        const hasRegisteredDevice = devices.some(d => d.status === 'Online');
         const isAvailable = (
+          hasRegisteredDevice &&
           presence.presenceStatus === 'Available' &&
           presence.dndStatus === 'TakeAllCalls' &&
           presence.telephonyStatus === 'NoCall'
         );
         let reason = null;
         if (!isAvailable) {
-          if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
+          if (!hasRegisteredDevice) reason = 'Offline';
+          else if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
           else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
           else reason = presence.presenceStatus;
         }
@@ -680,6 +703,7 @@ const server = http.createServer(async (req, res) => {
           presenceStatus: presence.presenceStatus,
           dndStatus: presence.dndStatus,
           telephonyStatus: presence.telephonyStatus,
+          deviceRegistered: hasRegisteredDevice,
           ...(reason && { reason })
         }));
       } catch (err) {
