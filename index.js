@@ -51,9 +51,10 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 30 * 1000; // 30 seconds - on-demand fetches (no webhook backing)
+const PRESENCE_TTL = 3 * 60 * 1000; // 3 minutes - on-demand fetches (longer to survive rate-limit cooldown)
 const PRESENCE_WEBHOOK_TTL = 5 * 60 * 1000; // 5 minutes - webhook-backed entries; webhook updates instantly on any change
 
+const presenceInFlight = new Map(); // dedup simultaneous fetches for same extension
 const queueMembersCache = new Map();
 const QUEUE_MEMBERS_TTL = 30 * 60 * 1000; // 30 minutes
 
@@ -82,20 +83,25 @@ async function getPresenceCached(token, extensionId) {
       return cached.data;
     }
   }
-  try {
-    const data = await rcThrottle(() => getPresence(token, extensionId));
-    if (data) presenceCache.set(extensionId, { data, expiry: now + PRESENCE_TTL, source: 'ondemand' });
+  // In-flight deduplication: if another request is already fetching this extension, share the result
+  if (presenceInFlight.has(extensionId)) {
+    try { return await presenceInFlight.get(extensionId); } catch(e) { if (cached) return cached.data; throw e; }
+  }
+  const fetchPromise = rcThrottle(() => getPresence(token, extensionId)).then(data => {
+    presenceInFlight.delete(extensionId);
+    if (data) presenceCache.set(extensionId, { data, expiry: Date.now() + PRESENCE_TTL, source: 'ondemand' });
     return data;
-  } catch (err) {
-    if (err.message && err.message.includes('CMN-301')) {
-      if (cached) {
-        presenceCache.set(extensionId, { data: cached.data, expiry: now + 20 * 1000 });
-        return cached.data;
-      }
+  }).catch(err => {
+    presenceInFlight.delete(extensionId);
+    if (err.message && err.message.includes('CMN-301') && cached) {
+      presenceCache.set(extensionId, { data: cached.data, expiry: Date.now() + 20 * 1000 });
+      return cached.data;
     }
     if (cached) return cached.data;
     throw err;
-  }
+  });
+  presenceInFlight.set(extensionId, fetchPromise);
+  return fetchPromise;
 }
 
 async function getQueueMembersCached(token, queueId) {
