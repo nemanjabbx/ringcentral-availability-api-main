@@ -402,7 +402,7 @@ async function checkQueueAvailability(queueName) {
   presenceResults.forEach((p, i) => {
     if (!p) return;
     const status = `${p.presenceStatus}/${p.telephonyStatus}/${p.dndStatus}`;
-    console.log(`[AGENT] ext=${members[i] && members[i].id} ${status}`);
+    // [AGENT] log removed to reduce log noise;
   });
 
   const activeCalls = presenceResults.filter(p => {
