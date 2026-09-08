@@ -16,7 +16,7 @@ let tokenExpiry = 0;
 
 // --- RC API Rate Limiter (max 2 concurrent requests) ---
 let rcActiveRequests = 0;
-const RC_MAX_CONCURRENT = 3;
+const RC_MAX_CONCURRENT = 1; // Reduced to minimize rate limit hits
 const rcQueue = [];
 let rcRateLimitedUntil = 0;
 
@@ -82,6 +82,13 @@ async function getPresenceCached(token, extensionId) {
     } else if (now < cached.expiry) {
       return cached.data;
     }
+    // During RC rate-limit cooldown, always serve stale cached data — never call RC
+    if (now < rcRateLimitedUntil) {
+      return cached.data;
+    }
+  } else if (now < rcRateLimitedUntil) {
+    // No cached data + in cooldown: return null (agent treated as unavailable)
+    return null;
   }
   // In-flight deduplication: if another request is already fetching this extension, share the result
   if (presenceInFlight.has(extensionId)) {
@@ -94,7 +101,7 @@ async function getPresenceCached(token, extensionId) {
   }).catch(err => {
     presenceInFlight.delete(extensionId);
     if (err.message && err.message.includes('CMN-301') && cached) {
-      presenceCache.set(extensionId, { data: cached.data, expiry: Date.now() + 20 * 1000 });
+      presenceCache.set(extensionId, { data: cached.data, expiry: Date.now() + 3 * 60 * 1000 }); // extend through cooldown
       return cached.data;
     }
     if (cached) return cached.data;
