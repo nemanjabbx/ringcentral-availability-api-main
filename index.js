@@ -51,7 +51,7 @@ function rcThrottle(fn) {
 
 // --- Caching ---
 const presenceCache = new Map();
-const PRESENCE_TTL = 3 * 60 * 1000; // 3 minutes - on-demand fetches (longer to survive rate-limit cooldown)
+const PRESENCE_TTL = 60 * 1000; // 1 minute - on-demand fetches (webhook handles real-time updates)
 const PRESENCE_WEBHOOK_TTL = 5 * 60 * 1000; // 5 minutes - webhook-backed entries; webhook updates instantly on any change
 
 const presenceInFlight = new Map(); // dedup simultaneous fetches for same extension
