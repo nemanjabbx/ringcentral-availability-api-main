@@ -705,6 +705,7 @@ const server = http.createServer(async (req, res) => {
           dndStatus: presence.dndStatus,
           telephonyStatus: presence.telephonyStatus,
           deviceRegistered: hasRegisteredDevice,
+          deviceInfo: devices.map(d => ({ type: d.type, status: d.status, name: d.name, id: d.id })),
           ...(reason && { reason })
         }));
       } catch (err) {
