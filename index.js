@@ -681,7 +681,8 @@ const server = http.createServer(async (req, res) => {
         }
         // Check if agent has at least one registered (online) device
         const devices = (deviceData && deviceData.records) || [];
-        const hasRegisteredDevice = devices.some(d => d.status === 'Online');
+        console.log(`[AGENT] ext=${ext} devices=${JSON.stringify(devices.map(d => ({ type: d.type, status: d.status, name: d.name })))}`);
+        const hasRegisteredDevice = devices.length > 0 && devices.some(d => d.status !== 'Offline');
         const isAvailable = (
           hasRegisteredDevice &&
           presence.presenceStatus === 'Available' &&
