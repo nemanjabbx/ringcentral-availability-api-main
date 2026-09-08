@@ -1056,16 +1056,33 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ error: 'Not found. Available: /availability?state=TX, /agent?id=xxx, /queue?name=QueueName, /queues, /calls, /call?number=5551234567' }));
 });
 
+async function setupWebhookWithRetry(attempt = 1) {
+  try {
+    const token = await getAccessToken();
+    if (attempt === 1) await deleteOldSubscriptions(token);
+    await createWebhookSubscription(token);
+    if (!webhookSubscriptionId) {
+      const delay = attempt * 3 * 60 * 1000; // 3min, 6min, 9min...
+      const maxAttempts = 5;
+      if (attempt < maxAttempts) {
+        console.log(`[WEBHOOK] Subscription failed (attempt ${attempt}/${maxAttempts}), retrying in ${attempt * 3} min...`);
+        setTimeout(() => setupWebhookWithRetry(attempt + 1), delay);
+      } else {
+        console.error('[WEBHOOK] All retry attempts failed — running in on-demand mode.');
+      }
+    }
+  } catch(err) {
+    const delay = attempt * 3 * 60 * 1000;
+    console.error(`[WEBHOOK] Setup error (attempt ${attempt}): ${err.message}, retrying in ${attempt * 3} min...`);
+    if (attempt < 5) setTimeout(() => setupWebhookWithRetry(attempt + 1), delay);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Availability API running on port ${PORT}`);
   console.log(`WEBHOOK_URL: ${WEBHOOK_URL || 'NOT SET'}`);
   console.log('Skipping warmup - cache will populate on demand');
-  try {
-    const token = await getAccessToken();
-    await deleteOldSubscriptions(token);
-    await createWebhookSubscription(token);
-  } catch(err) {
-    console.error('Failed to create webhook subscription:', err.message);
-  }
+  // Delay initial webhook setup by 10s to let rate limit cooldown after busy deploys
+  setTimeout(() => setupWebhookWithRetry(1), 10000);
 });
