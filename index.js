@@ -686,15 +686,13 @@ const server = http.createServer(async (req, res) => {
         const activeCall = presence.telephonyStatus !== 'NoCall';
         const hasRegisteredDevice = activeCall || (devices.length > 0 && devices.some(d => d.status !== 'Offline'));
         const isAvailable = (
-          hasRegisteredDevice &&
           presence.presenceStatus === 'Available' &&
           presence.dndStatus === 'TakeAllCalls' &&
           presence.telephonyStatus === 'NoCall'
         );
         let reason = null;
         if (!isAvailable) {
-          if (!hasRegisteredDevice) reason = 'Offline';
-          else if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
+          if (presence.dndStatus !== 'TakeAllCalls') reason = 'DND';
           else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
           else reason = presence.presenceStatus;
         }
