@@ -398,7 +398,7 @@ async function checkQueueAvailability(queueName) {
       p.telephonyStatus === 'NoCall'
     );
   });
-  console.log(`[RESULT] queue=${matchedQueue.name} available=${availableAgents.length}/${members.length} agents=${availableAgents.map(p => p.extensionId || '?').join(',')}`);
+  // [RESULT] log removed;
   presenceResults.forEach((p, i) => {
     if (!p) return;
     const status = `${p.presenceStatus}/${p.telephonyStatus}/${p.dndStatus}`;
