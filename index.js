@@ -339,7 +339,7 @@ async function getExtensions(token) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'platform.ringcentral.com',
-      path: '/restapi/v1.0/account/~/extension?perPage=200&type=User&status=Enabled',
+      path: '/restapi/v1.0/account/~/extension?perPage=1000&type=User&status=Enabled',
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` }
     };
