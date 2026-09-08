@@ -703,57 +703,22 @@ const server = http.createServer(async (req, res) => {
     if (ext) {
       try {
         const token = await getAccessToken();
-        const lookup = await new Promise((resolve) => {
-          const options = {
-            hostname: 'platform.ringcentral.com',
-            path: `/restapi/v1.0/account/~/extension?extensionNumber=${encodeURIComponent(ext)}`,
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
-          };
-          const r = https.request(options, (rcRes) => {
-            let data = '';
-            rcRes.on('data', chunk => data += chunk);
-            rcRes.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
-          });
-          r.on('error', () => resolve(null));
-          r.end();
-        });
-        const records = (lookup && lookup.records) || [];
-        if (!records.length) {
+        // Use cached extensions list instead of individual RC lookup (saves 1 API call per ping)
+        const extData = await getExtensionsCached(token);
+        const allExts = (extData && extData.records) || [];
+        const matched = allExts.find(e => String(e.extensionNumber) === String(ext));
+        if (!matched) {
           res.writeHead(404);
           return res.end(JSON.stringify({ available: false, ext, reason: 'Extension not found' }));
         }
-        const extId = records[0].id;
-        const extName = records[0].name;
-        // Fetch presence and device registration in parallel
-        const [presence, deviceData] = await Promise.all([
-          getPresenceCached(token, extId),
-          new Promise((resolve) => {
-            const opts = {
-              hostname: 'platform.ringcentral.com',
-              path: `/restapi/v1.0/account/~/extension/${extId}/device`,
-              method: 'GET',
-              headers: { 'Authorization': `Bearer ${token}` }
-            };
-            const r = https.request(opts, (rcRes) => {
-              let data = '';
-              rcRes.on('data', chunk => data += chunk);
-              rcRes.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { resolve(null); } });
-            });
-            r.on('error', () => resolve(null));
-            r.end();
-          })
-        ]);
+        const extId = matched.id;
+        const extName = matched.name;
+        // Only presence check — device check removed (unreliable for WebRTC, not used for availability)
+        const presence = await getPresenceCached(token, extId);
         if (!presence || presence.errorCode) {
-          res.writeHead(404);
-          return res.end(JSON.stringify({ available: false, ext, reason: (presence && presence.message) || 'Agent not found' }));
+          res.writeHead(200);
+          return res.end(JSON.stringify({ available: false, ext, reason: (presence && presence.message) || 'No presence data' }));
         }
-        // Check if agent has at least one registered (online) device
-        const devices = (deviceData && deviceData.records) || [];
-        console.log(`[AGENT] ext=${ext} devices=${JSON.stringify(devices.map(d => ({ type: d.type, status: d.status, name: d.name })))}`);
-        // RC /device endpoint is unreliable for WebRTC — if agent is on a call they clearly have an active device
-        const activeCall = presence.telephonyStatus !== 'NoCall';
-        const hasRegisteredDevice = activeCall || (devices.length > 0 && devices.some(d => d.status !== 'Offline'));
         const isAvailable = (
           presence.presenceStatus === 'Available' &&
           presence.dndStatus === 'TakeAllCalls' &&
@@ -773,8 +738,6 @@ const server = http.createServer(async (req, res) => {
           presenceStatus: presence.presenceStatus,
           dndStatus: presence.dndStatus,
           telephonyStatus: presence.telephonyStatus,
-          deviceRegistered: hasRegisteredDevice,
-          deviceInfo: devices.map(d => ({ type: d.type, status: d.status, name: d.name, id: d.id })),
           ...(reason && { reason })
         }));
       } catch (err) {
