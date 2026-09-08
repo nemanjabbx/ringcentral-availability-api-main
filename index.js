@@ -589,6 +589,45 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: 'cooldown_active', minutes, until }));
   }
 
+  // Webhook test: /webhook-test (manually trigger subscription + show RC response)
+  if (pathname === '/webhook-test') {
+    try {
+      const token = await getAccessToken();
+      const rawResponse = await new Promise((resolve) => {
+        const body = JSON.stringify({
+          eventFilters: ['/restapi/v1.0/account/~/extension/~/presence?detailedTelephonyState=true'],
+          deliveryMode: {
+            transportType: 'WebHook',
+            address: `${WEBHOOK_URL}/webhook/presence`,
+            verificationToken: WEBHOOK_VERIFICATION_TOKEN
+          },
+          expiresIn: 86400
+        });
+        const options = {
+          hostname: 'platform.ringcentral.com',
+          path: '/restapi/v1.0/subscription',
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+        };
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        });
+        req.on('error', (e) => resolve({ status: 0, body: e.message }));
+        req.write(body);
+        req.end();
+      });
+      let parsed = rawResponse.body;
+      try { parsed = JSON.parse(rawResponse.body); } catch(e) {}
+      res.writeHead(200);
+      return res.end(JSON.stringify({ http_status: rawResponse.status, rc_response: parsed, webhook_url_used: `${WEBHOOK_URL}/webhook/presence` }));
+    } catch(err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   // Webhook status: /webhook-status
   if (pathname === '/webhook-status') {
     const cacheEntries = [...presenceCache.entries()].map(([k, v]) => ({
