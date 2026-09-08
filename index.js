@@ -589,6 +589,23 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ status: 'cooldown_active', minutes, until }));
   }
 
+  // Webhook status: /webhook-status
+  if (pathname === '/webhook-status') {
+    const cacheEntries = [...presenceCache.entries()].map(([k, v]) => ({
+      extId: k, source: v.source || 'ondemand', age_sec: Math.round((Date.now() - (v.webhookAt || 0)) / 1000)
+    }));
+    const webhookBacked = cacheEntries.filter(e => e.source === 'webhook').length;
+    res.writeHead(200);
+    return res.end(JSON.stringify({
+      webhook_subscription_id: webhookSubscriptionId || null,
+      webhook_active: !!webhookSubscriptionId,
+      webhook_url: WEBHOOK_URL || null,
+      cache_total: cacheEntries.length,
+      cache_webhook_backed: webhookBacked,
+      cache_ondemand: cacheEntries.length - webhookBacked
+    }));
+  }
+
   // Cooldown status: /cooldown/status
   if (pathname === '/cooldown/status') {
     const now = Date.now();
