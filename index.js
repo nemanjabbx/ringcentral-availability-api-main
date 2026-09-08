@@ -261,7 +261,7 @@ async function getQueues(token) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'platform.ringcentral.com',
-      path: '/restapi/v1.0/account/~/call-queues?perPage=200',
+      path: '/restapi/v1.0/account/~/call-queues?perPage=1000',
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` }
     };
