@@ -437,8 +437,15 @@ async function checkQueueAvailability(queueName) {
     return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
-  // Fixed destination — ORL queue DID (main company number)
-  const destination = '17272131641';
+  // Get DID of first available agent in this queue
+  let destination = null;
+  if (availableAgentPresence.length > 0) {
+    const availableIdx = presenceResults.indexOf(availableAgentPresence[0]);
+    const availableMember = members[availableIdx];
+    if (availableMember) {
+      destination = await getExtensionDID(token, availableMember.id).catch(() => null);
+    }
+  }
 
   return {
     available: availableAgentPresence.length > 0,
