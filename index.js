@@ -369,6 +369,39 @@ async function getExtensions(token) {
   });
 }
 
+// --- DID cache ---
+const didCache = new Map();
+const DID_TTL = 60 * 60 * 1000; // 1 hour
+
+async function getExtensionDID(token, extensionId) {
+  const now = Date.now();
+  const cached = didCache.get(String(extensionId));
+  if (cached && now < cached.expiry) return cached.did;
+  return new Promise((resolve) => {
+    const req = require('https').request({
+      hostname: 'platform.ringcentral.com',
+      path: `/restapi/v1.0/account/~/extension/${extensionId}/phone-number`,
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const records = json.records || [];
+          const direct = records.find(r => r.usageType === 'DirectNumber' && r.phoneNumber);
+          const did = direct ? direct.phoneNumber.replace(/\D/g, '') : null;
+          didCache.set(String(extensionId), { did, expiry: Date.now() + DID_TTL });
+          resolve(did);
+        } catch(e) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.end();
+  });
+}
+
 // --- Availability check functions ---
 async function checkQueueAvailability(queueName) {
   const token = await getAccessToken();
@@ -390,7 +423,7 @@ async function checkQueueAvailability(queueName) {
     members.map(async (m) => getPresenceCached(token, m.id).catch(() => null))
   );
 
-  const availableAgents = presenceResults.filter(p => {
+  const availableAgentPresence = presenceResults.filter(p => {
     if (!p) return false;
     return (
       p.presenceStatus === 'Available' &&
@@ -398,24 +431,29 @@ async function checkQueueAvailability(queueName) {
       p.telephonyStatus === 'NoCall'
     );
   });
-  // [RESULT] log removed;
-  presenceResults.forEach((p, i) => {
-    if (!p) return;
-    const status = `${p.presenceStatus}/${p.telephonyStatus}/${p.dndStatus}`;
-    // [AGENT] log removed to reduce log noise;
-  });
 
   const activeCalls = presenceResults.filter(p => {
     if (!p) return false;
     return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
+  // Get DID of first available agent
+  let destination = null;
+  if (availableAgentPresence.length > 0) {
+    const firstAvailableId = availableAgentPresence[0].extensionId ||
+      (availableAgentPresence[0].extension && availableAgentPresence[0].extension.id);
+    if (firstAvailableId) {
+      destination = await getExtensionDID(token, firstAvailableId).catch(() => null);
+    }
+  }
+
   return {
-    available: availableAgents.length > 0,
-    agents: availableAgents.length,
+    available: availableAgentPresence.length > 0,
+    agents: availableAgentPresence.length,
     active_calls: activeCalls,
     total_members: members.length,
-    queue: matchedQueue.name
+    queue: matchedQueue.name,
+    ...(destination && { destination })
   };
 }
 
