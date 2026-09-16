@@ -812,6 +812,39 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Debug: queue DID lookup
+  if (pathname === '/debug/queue-did') {
+    const name = url.searchParams.get('name') || 'Texas';
+    try {
+      const token = await getAccessToken();
+      const queuesData = await getQueuesCached(token);
+      const queues = queuesData.records || [];
+      const matched = queues.find(q => q.name.toLowerCase() === name.toLowerCase());
+      if (!matched) {
+        res.writeHead(404);
+        return res.end(JSON.stringify({ error: `Queue not found: ${name}` }));
+      }
+      const phoneData = await new Promise((resolve) => {
+        const req = https.request({
+          hostname: 'platform.ringcentral.com',
+          path: `/restapi/v1.0/account/~/extension/${matched.id}/phone-number`,
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, (r) => {
+          let d = ''; r.on('data', c => d += c);
+          r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ raw: d }); } });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+      });
+      res.writeHead(200);
+      return res.end(JSON.stringify({ queue: matched.name, id: matched.id, phone_numbers: phoneData }, null, 2));
+    } catch(err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   // Debug: all agents presence
   if (pathname === '/agents/debug') {
     try {
