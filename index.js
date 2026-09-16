@@ -437,23 +437,12 @@ async function checkQueueAvailability(queueName) {
     return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
-  // Get DID of first available agent in this queue
-  let destination = null;
-  if (availableAgentPresence.length > 0) {
-    const availableIdx = presenceResults.indexOf(availableAgentPresence[0]);
-    const availableMember = members[availableIdx];
-    if (availableMember) {
-      destination = await getExtensionDID(token, availableMember.id).catch(() => null);
-    }
-  }
-
   return {
     available: availableAgentPresence.length > 0,
     agents: availableAgentPresence.length,
     active_calls: activeCalls,
     total_members: members.length,
-    queue: matchedQueue.name,
-    destination: destination || null
+    queue: matchedQueue.name
   };
 }
 
