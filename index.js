@@ -390,9 +390,7 @@ async function getExtensionDID(token, extensionId) {
         try {
           const json = JSON.parse(data);
           const records = json.records || [];
-          const direct = records.find(r => r.usageType === 'DirectNumber' && r.phoneNumber)
-            || records.find(r => r.usageType === 'MainCompanyNumber' && r.phoneNumber)
-            || records.find(r => r.phoneNumber && r.type === 'VoiceFax');
+          const direct = records.find(r => r.usageType === 'DirectNumber' && r.phoneNumber);
           const did = direct ? direct.phoneNumber.replace(/\D/g, '') : null;
           didCache.set(String(extensionId), { did, expiry: Date.now() + DID_TTL });
           resolve(did);
@@ -439,8 +437,16 @@ async function checkQueueAvailability(queueName) {
     return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
-  // Get DID of the queue itself
-  const destination = await getExtensionDID(token, matchedQueue.id).catch(() => null);
+  // Get DID of first available agent in this queue
+  let destination = null;
+  if (availableAgentPresence.length > 0) {
+    // Find the member ID of first available agent by matching presence results
+    const availableIdx = presenceResults.indexOf(availableAgentPresence[0]);
+    const availableMember = members[availableIdx];
+    if (availableMember) {
+      destination = await getExtensionDID(token, availableMember.id).catch(() => null);
+    }
+  }
 
   return {
     available: availableAgentPresence.length > 0,
