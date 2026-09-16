@@ -390,7 +390,9 @@ async function getExtensionDID(token, extensionId) {
         try {
           const json = JSON.parse(data);
           const records = json.records || [];
-          const direct = records.find(r => r.usageType === 'DirectNumber' && r.phoneNumber);
+          const direct = records.find(r => r.usageType === 'DirectNumber' && r.phoneNumber)
+            || records.find(r => r.usageType === 'MainCompanyNumber' && r.phoneNumber)
+            || records.find(r => r.phoneNumber && r.type === 'VoiceFax');
           const did = direct ? direct.phoneNumber.replace(/\D/g, '') : null;
           didCache.set(String(extensionId), { did, expiry: Date.now() + DID_TTL });
           resolve(did);
