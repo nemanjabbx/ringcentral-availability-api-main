@@ -814,6 +814,47 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Debug: all DIDs in account mapped to extensions
+  if (pathname === '/debug/dids') {
+    try {
+      const token = await getAccessToken();
+      const queuesData = await getQueuesCached(token);
+      const queues = queuesData.records || [];
+      const queueMap = {};
+      queues.forEach(q => { queueMap[q.id] = q.name; });
+
+      const phoneData = await new Promise((resolve) => {
+        const req = https.request({
+          hostname: 'platform.ringcentral.com',
+          path: '/restapi/v1.0/account/~/phone-number?perPage=1000&usageType=DirectNumber',
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, (r) => {
+          let d = ''; r.on('data', c => d += c);
+          r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { resolve({ raw: d }); } });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+      });
+
+      const records = (phoneData && phoneData.records) || [];
+      const mapped = records.map(r => ({
+        number: r.phoneNumber,
+        extensionId: r.extension && r.extension.id,
+        extensionNumber: r.extension && r.extension.extensionNumber,
+        extensionName: (r.extension && r.extension.id && queueMap[r.extension.id]) || (r.extension && r.extension.name),
+        usageType: r.usageType,
+        location: r.location
+      }));
+
+      res.writeHead(200);
+      return res.end(JSON.stringify({ total: records.length, dids: mapped }, null, 2));
+    } catch(err) {
+      res.writeHead(500);
+      return res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
   // Debug: queue DID lookup
   if (pathname === '/debug/queue-did') {
     const name = url.searchParams.get('name') || 'Texas';
