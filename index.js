@@ -437,12 +437,14 @@ async function checkQueueAvailability(queueName) {
     return p.telephonyStatus === 'CallConnected' || p.telephonyStatus === 'OnHold' || p.telephonyStatus === 'Ringing';
   }).length;
 
+  const isAvailable = availableAgentPresence.length > 0;
   return {
-    available: availableAgentPresence.length > 0,
+    available: isAvailable,
     agents: availableAgentPresence.length,
     active_calls: activeCalls,
     total_members: members.length,
-    queue: matchedQueue.name
+    queue: matchedQueue.name,
+    ...(isAvailable && { destination: '17272131641' })
   };
 }
 
