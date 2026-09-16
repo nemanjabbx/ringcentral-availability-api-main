@@ -731,6 +731,7 @@ const server = http.createServer(async (req, res) => {
           else if (presence.telephonyStatus !== 'NoCall') reason = 'OnCall';
           else reason = presence.presenceStatus;
         }
+        const did = await getExtensionDID(token, extId).catch(() => null);
         res.writeHead(200);
         return res.end(JSON.stringify({
           available: isAvailable,
@@ -739,6 +740,7 @@ const server = http.createServer(async (req, res) => {
           presenceStatus: presence.presenceStatus,
           dndStatus: presence.dndStatus,
           telephonyStatus: presence.telephonyStatus,
+          ...(did && { did }),
           ...(reason && { reason })
         }));
       } catch (err) {
