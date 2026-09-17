@@ -669,7 +669,11 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(400);
       return res.end(JSON.stringify({ available: false, error: 'Missing state parameter. Use ?state=TX' }));
     }
-    const stateUpper = state.toUpperCase().trim();
+    // Accept both full state name (Georgia) and state code (GA)
+    const stateInput = state.trim();
+    const stateInputUpper = stateInput.toUpperCase();
+    const NAME_TO_CODE = Object.fromEntries(Object.entries(STATE_NAME_MAP).map(([k,v]) => [v.toUpperCase(), k]));
+    const stateUpper = NAME_TO_CODE[stateInputUpper] || stateInputUpper;
     const office = url.searchParams.get('office') ? url.searchParams.get('office').trim() : null;
     const minAgentsParam = url.searchParams.get('min_agents');
     const minAgents = minAgentsParam ? parseInt(minAgentsParam, 10) : null;
